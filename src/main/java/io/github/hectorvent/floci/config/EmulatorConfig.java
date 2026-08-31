@@ -57,6 +57,16 @@ public interface EmulatorConfig {
     @WithDefault("public.ecr.aws")
     String ecrBaseUri();
 
+    /**
+     * Path to a shared mock-response configuration file used by the fixed-stub AI services
+     * (Textract, Comprehend, Rekognition) to return a caller-configured response instead of
+     * their default canned stub. See {@link io.github.hectorvent.floci.core.common.AiMockConfigLoader}.
+     * Equivalent to Step Functions' {@code SFN_MOCK_CONFIG}, but shared across services since
+     * mocking here is opt-in on top of an always-available default, not the only way to invoke
+     * an action.
+     */
+    Optional<String> aiMockConfigFile();
+
     StorageConfig storage();
 
     DnsConfig dns();
@@ -705,11 +715,18 @@ public interface EmulatorConfig {
         ServiceQuotasServiceConfig servicequotas();
         RamServiceConfig ram();
         ControlTowerServiceConfig controltower();
+        ConnectServiceConfig connect();
 
         ApsServiceConfig aps();
 
         LakeFormationServiceConfig lakeformation();
         EfsServiceConfig efs();
+        CodeGuruReviewerServiceConfig codegurureviewer();
+    }
+
+    interface ConnectServiceConfig {
+        @WithDefault("true")
+        boolean enabled();
     }
 
     interface SsoAdminServiceConfig {
@@ -718,6 +735,11 @@ public interface EmulatorConfig {
     }
 
     interface ApsServiceConfig {
+        @WithDefault("true")
+        boolean enabled();
+    }
+
+    interface CodeGuruReviewerServiceConfig {
         @WithDefault("true")
         boolean enabled();
     }
@@ -1118,6 +1140,17 @@ public interface EmulatorConfig {
         @WithDefault("postgres:15-alpine")
         String imageVersion();
         Optional<String> dockerNetwork();
+
+        // Port range the per-cluster auth proxies bind on the Floci host. Disjoint from
+        // every other service's range (RDS uses 7001-7099).
+        @WithDefault("7100")
+        int proxyBasePort();
+        @WithDefault("7199")
+        int proxyMaxPort();
+
+        // Hostname clients use to reach a cluster endpoint. Empty -> resolved from
+        // DockerHostResolver (falls back to "localhost").
+        Optional<String> endpointHost();
     }
 
     interface RdsServiceConfig {
@@ -1699,6 +1732,35 @@ public interface EmulatorConfig {
         boolean keepRunningOnShutdown();
 
         Optional<String> dockerNetwork();
+
+        /**
+         * Overrides the Floci endpoint handed to the UI sidecar, instead of deriving it from
+         * the resolved Docker host and {@link EmulatorConfig#tls()}.
+         * Env: {@code FLOCI_SERVICES_UI_ENDPOINT}
+         *
+         * <p>The derived value is {@code https://<floci-container-ip>:<port>} when TLS is on,
+         * which the sidecar's Node/Bun proxy rejects: Floci's self-signed certificate carries no
+         * IP SAN for its own container IP, so verification fails with
+         * {@code ERR_TLS_CERT_ALTNAME_INVALID} even when the CA is trusted. Floci's port does
+         * HTTP/HTTPS protocol detection, so pointing the sidecar at {@code http://<ip>:<port>}
+         * reaches the same server over the private container network with TLS left enabled.
+         *
+         * <p>Must be an absolute {@code http://} or {@code https://} URL. A blank or malformed
+         * value is a hard error rather than a silent fall back to the derived endpoint.
+         */
+        Optional<String> endpoint();
+
+        /**
+         * Disables TLS certificate verification in the UI sidecar's Node/Bun proxy by injecting
+         * {@code NODE_TLS_REJECT_UNAUTHORIZED=0}. Env: {@code FLOCI_SERVICES_UI_INSECURE_SKIP_TLS_VERIFY}
+         *
+         * <p>Trusting Floci's CA alone is not sufficient — it fixes the chain but not the missing
+         * IP SAN — so this is the only trust knob that makes an {@code https://<container-ip>}
+         * endpoint work. Scoped to the sidecar's connection to Floci; it does not affect Floci's
+         * own TLS. Prefer {@link #endpoint()} where an {@code http://} endpoint is acceptable.
+         */
+        @WithDefault("false")
+        boolean insecureSkipTlsVerify();
     }
 
     interface EcrServiceConfig {
@@ -1791,6 +1853,21 @@ public interface EmulatorConfig {
          * Env var: FLOCI_SERVICES_LAMBDA_CONTAINER_NAME_PREFIX
          */
         Optional<String> containerNamePrefix();
+
+        /**
+         * Maximum concurrent first-time code-volume populates. Populating streams a large
+         * function's unpacked code into a helper container, so a burst of them can overwhelm
+         * the Docker daemon; this caps how many run at once.
+         *
+         * <p>Unset derives {@code max(2, availableProcessors() / 2)}. That derivation reads the
+         * JVM's view of the cgroup CPU quota, so a CPU-constrained Floci container collapses the
+         * cap to 2 and concurrent cold starts of distinct functions serialize into pairs. Set
+         * this to decouple the cap from the CPU allocation. Values below 1 are ignored with a
+         * warning rather than deadlocking every populate.
+         *
+         * Env var: FLOCI_SERVICES_LAMBDA_CODE_VOLUME_POPULATE_CONCURRENCY
+         */
+        Optional<Integer> codeVolumePopulateConcurrency();
 
         /**
          * Extra /etc/hosts entries added to every Lambda container, as "hostname:ip" pairs.

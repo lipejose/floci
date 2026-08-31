@@ -83,6 +83,8 @@ floci:
                    # Needed for multi-container Docker setups. Example: FLOCI_HOSTNAME=floci
   default-region: us-east-1
   default-account-id: "000000000000"
+  # Shared mock-response config for Textract/Comprehend/Rekognition. See AiMockConfigLoader.
+  ai-mock-config-file: ${AI_MOCK_CONFIG:}
   storage:
     # Supported modes: memory, persistent, hybrid, wal
     mode: memory
@@ -265,6 +267,7 @@ floci:
       # aws-config-path:                      # Host path to bind-mount (read-only) at /opt/aws-config for real credential discovery
       # extra-hosts:                          # Extra /etc/hosts entries for Lambda containers, "hostname:ip" ("host-gateway" allowed as ip)
       # container-name-prefix: floci          # FLOCI_SERVICES_LAMBDA_CONTAINER_NAME_PREFIX — base name prefix for spawned containers and code volumes ([A-Za-z0-9][A-Za-z0-9_.-]*; invalid values fall back to "floci")
+      # code-volume-populate-concurrency:     # FLOCI_SERVICES_LAMBDA_CODE_VOLUME_POPULATE_CONCURRENCY — max concurrent first-time code-volume populates (default max(2, cpus/2), which a CPU-constrained container collapses to 2)
       executor: docker                        # docker | kubernetes (run Lambda environments as pods)
       # kubernetes:
       #   namespace: default                  # Namespace Lambda pods are created in
@@ -318,6 +321,9 @@ floci:
       enabled: true
       default-port: 5439
       image-version: postgres:15-alpine
+      proxy-base-port: 7100
+      proxy-max-port: 7199
+      # endpoint-host: localhost                 # Hostname clients use; empty -> DockerHostResolver
     rds:
       enabled: true
       mock: false                                 # FLOCI_SERVICES_RDS_MOCK — true = metadata only, no Docker (useful for CI)
@@ -447,6 +453,9 @@ floci:
       container-name: floci-ui
       port: 4500
       keep-running-on-shutdown: false
+      # endpoint: unset by default — Floci derives the sidecar's callback address automatically.
+      # Set an absolute http:// or https:// URL here only to override that derivation.
+      insecure-skip-tls-verify: false
     bedrock:
       enabled: true
     bedrock-runtime:
@@ -583,6 +592,8 @@ floci:
       enabled: true
     route53resolver:
       enabled: true
+    connect:
+      enabled: true
     aps:
       enabled: true
     lakeformation:
@@ -606,4 +617,6 @@ floci:
     servicequotas:
       enabled: true
     ram:
+      enabled: true
+    codegurureviewer:
       enabled: true
