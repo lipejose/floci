@@ -140,6 +140,8 @@ floci:
         flush-interval-ms: 5000
       transcribe:
         flush-interval-ms: 5000
+      bedrock:
+        flush-interval-ms: 5000
       codedeploy:
         flush-interval-ms: 5000
       tagging:
@@ -445,6 +447,8 @@ floci:
       container-name: floci-ui
       port: 4500
       keep-running-on-shutdown: false
+    bedrock:
+      enabled: true
     bedrock-runtime:
       enabled: true
       backend: stub
